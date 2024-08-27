@@ -2,7 +2,7 @@ import xmlrpc.client
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
-
+from fastapi.middleware.cors import CORSMiddleware
 # Configura los detalles de la conexión a Odoo
 url = 'https://symtechven1.odoo.com/'
 db = 'symtechven1'
@@ -10,14 +10,24 @@ username = 'escalonaf12@gmail.com'
 password = 'Link420/'
 
 # Conectar al servidor
+# Conectar al servidor
 common = xmlrpc.client.ServerProxy(f'{url}/xmlrpc/2/common', allow_none=True)
 uid = common.authenticate(db, username, password, {})
 
 # Crear un cliente para los métodos de objetos
 models = xmlrpc.client.ServerProxy(f'{url}/xmlrpc/2/object', allow_none=True)
 
+
 # Inicializar FastAPI
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allows all origins
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all methods
+    allow_headers=["*"],  # Allows all headers
+)
 class QuantityUpdate(BaseModel):
     qty_available: float
 
@@ -38,7 +48,8 @@ class ProductCreate(BaseModel):
     description: Optional[str] = None
     quantity_svl: float
     is_storable: bool = True
-
+def filter_none_values(data: dict) -> dict:
+    return {k: v for k, v in data.items() if v is not None}
 
 
 
@@ -54,16 +65,18 @@ async def create_product(product: ProductCreate):
         if existing_product_ids:
             raise HTTPException(status_code=400, detail=f"Barcode '{product.barcode}' already assigned to another product.")
 
+    product_data = filter_none_values({
+        'barcode': product.barcode,
+        'name': product.name,
+        'list_price': product.price,
+        'description_sale': product.description,
+        'is_storable': product.is_storable
+    })
+
     product_id = models.execute_kw(
         db, uid, password,
         'product.product', 'create',
-        [{
-            'barcode': product.barcode,
-            'name': product.name,
-            'list_price': product.price,
-            'description_sale': product.description,
-            'is_storable': product.is_storable
-        }]
+        [product_data]
     )
 
     if product.quantity_svl > 0:
@@ -103,6 +116,9 @@ async def create_product(product: ProductCreate):
 
     return "Product created successfully"
 
+
+
+
 @app.put("/products/{barcode}/quantity")
 async def update_product_quantity(barcode: str, quantity_update: QuantityUpdate):
     product_ids = models.execute_kw(
@@ -140,6 +156,14 @@ async def update_product_quantity(barcode: str, quantity_update: QuantityUpdate)
         )
 
     return {"detail": "Product quantity updated successfully"}
+
+
+
+
+
+
+
+
 # Update the get_products endpoint
 @app.get("/products/")
 async def get_products():
